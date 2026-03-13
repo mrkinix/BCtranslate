@@ -1,13 +1,10 @@
 import * as babelParser from '@babel/parser';
 import _traverse from '@babel/traverse';
-import _generate from '@babel/generator';
-import * as t from '@babel/types';
 import MagicString from 'magic-string';
-import { hashKey, isTranslatable } from '../utils.js';
+import { textKey, isTranslatable } from '../utils.js';
 
 // Handle ESM default export quirks
 const traverse = _traverse.default || _traverse;
-const generate = _generate.default || _generate;
 
 /**
  * Non-translatable JSX attribute names.
@@ -26,7 +23,30 @@ const ATTR_WHITELIST = new Set([
 ]);
 
 /**
+ * Walk up the Babel path tree to find the nearest enclosing function
+ * with a BlockStatement body — that is the React component function.
+ * Returns the character offset right after the opening `{`.
+ */
+function findComponentBodyStart(jsxPath) {
+  let p = jsxPath.parentPath;
+  while (p) {
+    const { node } = p;
+    if (
+      (node.type === 'FunctionDeclaration' ||
+        node.type === 'FunctionExpression' ||
+        node.type === 'ArrowFunctionExpression') &&
+      node.body?.type === 'BlockStatement'
+    ) {
+      return node.body.start + 1; // right after opening {
+    }
+    p = p.parentPath;
+  }
+  return -1;
+}
+
+/**
  * Parse a JSX/TSX file and extract translatable strings.
+ * Hook injection uses AST-derived character positions — no regex.
  */
 export function parseReact(source, filePath) {
   const extracted = [];
@@ -45,13 +65,12 @@ export function parseReact(source, filePath) {
         'decorators-legacy',
       ].filter(Boolean),
     });
-  } catch (err) {
-    // If Babel fails, return unmodified
+  } catch {
     return { source, extracted: [], modified: false };
   }
 
   const s = new MagicString(source);
-  let needsImport = false;
+  let hookInsertPos = -1;
 
   traverse(ast, {
     // JSX text children: <div>Hello World</div>
@@ -59,28 +78,23 @@ export function parseReact(source, filePath) {
       const text = path.node.value.trim();
       if (!isTranslatable(text)) return;
 
-      const key = hashKey(text);
-      const start = path.node.start;
-      const end = path.node.end;
-
-      // Preserve whitespace
+      const key = textKey(text);
+      const { start, end } = path.node;
       const original = path.node.value;
       const leadingWs = original.match(/^(\s*)/)[1];
       const trailingWs = original.match(/(\s*)$/)[1];
 
       s.overwrite(start, end, `${leadingWs}{t('${key}')}${trailingWs}`);
       extracted.push({ key, text, context: 'jsx-text' });
-      needsImport = true;
+
+      if (hookInsertPos === -1) hookInsertPos = findComponentBodyStart(path);
     },
 
     // JSX string attributes: <input placeholder="Enter name" />
     JSXAttribute(path) {
       const name = path.node.name?.name;
-      if (!name) return;
+      if (!name || ATTR_BLACKLIST.has(name)) return;
 
-      if (ATTR_BLACKLIST.has(name)) return;
-
-      // Only translate whitelisted attrs, or unknown attrs if they have translatable values
       const value = path.node.value;
       if (!value || value.type !== 'StringLiteral') return;
 
@@ -88,60 +102,41 @@ export function parseReact(source, filePath) {
       if (!isTranslatable(text)) return;
       if (!ATTR_WHITELIST.has(name) && text.length < 3) return;
 
-      const key = hashKey(text);
-      const attrStart = path.node.start;
-      const attrEnd = path.node.end;
-
-      s.overwrite(attrStart, attrEnd, `${name}={t('${key}')}`);
+      const key = textKey(text);
+      s.overwrite(path.node.start, path.node.end, `${name}={t('${key}')}`);
       extracted.push({ key, text, context: `jsx-attr-${name}` });
-      needsImport = true;
+
+      if (hookInsertPos === -1) hookInsertPos = findComponentBodyStart(path);
     },
 
-    // String literals in common patterns (not JSX)
+    // alert('...'), confirm('...')
     CallExpression(path) {
       const callee = path.node.callee;
-      const calleeName = callee.name || (callee.property && callee.property.name);
+      const calleeName = callee.name || callee.property?.name;
+      if (!['alert', 'confirm'].includes(calleeName)) return;
 
-      // alert('...'), confirm('...'), toast('...')
-      if (['alert', 'confirm'].includes(calleeName)) {
-        const arg = path.node.arguments[0];
-        if (arg && arg.type === 'StringLiteral' && isTranslatable(arg.value)) {
-          const key = hashKey(arg.value);
-          s.overwrite(arg.start, arg.end, `t('${key}')`);
-          extracted.push({ key, text: arg.value, context: 'call-arg' });
-          needsImport = true;
-        }
+      const arg = path.node.arguments[0];
+      if (arg?.type === 'StringLiteral' && isTranslatable(arg.value)) {
+        const key = textKey(arg.value);
+        s.overwrite(arg.start, arg.end, `t('${key}')`);
+        extracted.push({ key, text: arg.value, context: 'call-arg' });
       }
     },
   });
 
-  // Add useTranslation import if needed
-  if (needsImport) {
-    const hasUseTranslation = source.includes('useTranslation');
-    if (!hasUseTranslation) {
-      // Find the first import statement or top of file
-      let insertPos = 0;
-      const importMatch = source.match(/^import\s.+$/m);
-      if (importMatch) {
-        // Insert after all imports
-        const lastImportMatch = [...source.matchAll(/^import\s.+$/gm)];
-        if (lastImportMatch.length > 0) {
-          const last = lastImportMatch[lastImportMatch.length - 1];
-          insertPos = last.index + last[0].length;
-        }
+  // ── Inject import and hook using AST-derived positions ───────────────────────
+  if (extracted.length > 0) {
+    if (!source.includes('useTranslation')) {
+      // Find the last ImportDeclaration node — safe even with 'use client' directives
+      let lastImportEnd = 0;
+      for (const node of ast.program.body) {
+        if (node.type === 'ImportDeclaration') lastImportEnd = node.end;
       }
-
-      s.appendRight(insertPos, `\nimport { useTranslation } from 'react-i18next';\n`);
+      s.appendRight(lastImportEnd, `\nimport { useTranslation } from 'react-i18next';`);
     }
 
-    // Add const { t } = useTranslation() if not present
-    if (!source.includes('useTranslation()')) {
-      // Find the function body
-      const funcMatch = source.match(/(?:function\s+\w+|const\s+\w+\s*=\s*(?:\([^)]*\)\s*=>|\w+\s*=>))\s*\{/);
-      if (funcMatch) {
-        const insertAt = funcMatch.index + funcMatch[0].length;
-        s.appendRight(insertAt, `\n  const { t } = useTranslation();\n`);
-      }
+    if (!source.includes('useTranslation()') && hookInsertPos > 0) {
+      s.appendRight(hookInsertPos, `\n  const { t } = useTranslation();\n`);
     }
   }
 

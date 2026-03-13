@@ -1,4 +1,4 @@
-import { hashKey, isTranslatable } from '../utils.js';
+import { isTranslatable } from '../utils.js';
 
 /**
  * Parse a JSON file and extract translatable string values.

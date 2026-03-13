@@ -8,7 +8,14 @@ Usage: python translator.py <from_code> <to_code>
 """
 
 import sys
+import io
 import json
+
+# Force UTF-8 on all platforms (critical on Windows where default may be cp1252)
+sys.stdin  = io.TextIOWrapper(sys.stdin.buffer,  encoding='utf-8')
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
+
 
 def ensure_model(from_code, to_code):
     """Ensure the translation model is installed, downloading if needed."""

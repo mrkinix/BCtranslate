@@ -1,6 +1,6 @@
 import MagicString from 'magic-string';
 import { parse, NodeTypes } from '@vue/compiler-dom';
-import { hashKey, isTranslatable } from '../utils.js';
+import { textKey, isTranslatable } from '../utils.js';
 
 const ATTR_WHITELIST = new Set([
   'title',
@@ -82,7 +82,7 @@ export function parseHtml(source, filePath, project) {
       const marker = `data-i18n-${name}`;
       if (openTagText.includes(marker)) continue;
 
-      const key = hashKey(value);
+      const key = textKey(value);
       s.appendRight(prop.loc.end.offset, ` ${marker}="${key}"`);
       extracted.push({ key, text: value, context: `html-attr-${name}` });
     }
@@ -98,7 +98,7 @@ export function parseHtml(source, filePath, project) {
 
         const marker = tag === 'title' ? 'data-i18n-title' : 'data-i18n';
         if (!openTagText.includes(marker) && isTranslatable(plain)) {
-          const key = hashKey(text);
+          const key = textKey(text);
           s.appendLeft(openTagEnd, ` ${marker}="${key}"`);
           extracted.push({ key, text, context: `html-inner-${tag}` });
         }

@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { shieldInterpolations, unshieldInterpolations } from '../utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -8,24 +9,20 @@ const PYTHON_SCRIPT = join(__dirname, '..', '..', 'python', 'translator.py');
 
 let cachedPythonCmd = null;
 
-/**
- * Find the correct python command on this system.
- */
 async function findPython() {
   if (cachedPythonCmd) return cachedPythonCmd;
-
   for (const cmd of ['python3', 'python']) {
     try {
-      const result = await execSimple(cmd, ['--version']);
-      if (result.includes('Python 3')) {
+      const out = await execSimple(cmd, ['--version']);
+      if (out.includes('Python 3')) {
         cachedPythonCmd = cmd;
         return cmd;
       }
     } catch { /* try next */ }
   }
   throw new Error(
-    'Python 3 not found. Install Python 3.8+ and ensure it is on your PATH.\n' +
-    '  Also install argostranslate: pip install argostranslate'
+    'Python 3 not found. Install Python 3.8+ and add it to your PATH.\n' +
+    '  Then run: pip install argostranslate'
   );
 }
 
@@ -45,13 +42,21 @@ function execSimple(cmd, args) {
 }
 
 /**
- * Check that Python and argostranslate are available,
- * and that the required language pair is installed.
+ * Install argostranslate via pip.
+ * Called from `init` and from checkPythonBridge when the package is missing.
+ */
+export async function installArgostranslate() {
+  const py = await findPython();
+  return execSimple(py, ['-m', 'pip', 'install', '--quiet', 'argostranslate']);
+}
+
+/**
+ * Check Python + argostranslate availability and download the language pair
+ * model if not already installed.
  */
 export async function checkPythonBridge(from, to) {
   const py = await findPython();
 
-  // Check argostranslate is installed and language pair available
   const checkScript = `
 import sys, json
 try:
@@ -62,41 +67,34 @@ except ImportError:
     sys.exit(0)
 
 from_code = "${from}"
-to_code = "${to}"
+to_code   = "${to}"
 
 installed = argostranslate.translate.get_installed_languages()
-from_lang = None
-to_lang = None
-for lang in installed:
-    if lang.code == from_code:
-        from_lang = lang
-    if lang.code == to_code:
-        to_lang = lang
+from_lang = next((l for l in installed if l.code == from_code), None)
+to_lang   = next((l for l in installed if l.code == to_code),   None)
 
-if not from_lang or not to_lang:
-    available_codes = [l.code for l in installed]
-    # Try to auto-download
+if from_lang and to_lang and from_lang.get_translation(to_lang):
+    print(json.dumps({"status": "ready"}))
+else:
     try:
         argostranslate.package.update_package_index()
-        available_packages = argostranslate.package.get_available_packages()
-        pkg = next((p for p in available_packages if p.from_code == from_code and p.to_code == to_code), None)
+        available = argostranslate.package.get_available_packages()
+        pkg = next((p for p in available if p.from_code == from_code and p.to_code == to_code), None)
         if pkg:
             print(json.dumps({"status": "downloading", "pair": f"{from_code}->{to_code}"}))
             argostranslate.package.install_from_path(pkg.download())
             print(json.dumps({"status": "ready"}))
         else:
+            available_codes = [l.code for l in installed]
             print(json.dumps({"error": f"Language pair {from_code}->{to_code} not available. Installed: {available_codes}"}))
     except Exception as e:
-        print(json.dumps({"error": f"Failed to download language pair: {str(e)}. Installed: {available_codes}"}))
-else:
-    print(json.dumps({"status": "ready"}))
+        print(json.dumps({"error": f"Failed to download language pair: {str(e)}"}))
 `;
 
   const result = await execSimple(py, ['-c', checkScript]);
 
-  // Parse last JSON line (might have multiple from downloading)
-  const lines = result.split('\n').filter(l => l.trim());
-  for (const line of lines.reverse()) {
+  const lines = result.split('\n').filter((l) => l.trim());
+  for (const line of [...lines].reverse()) {
     try {
       const parsed = JSON.parse(line);
       if (parsed.error) throw new Error(parsed.error);
@@ -105,23 +103,30 @@ else:
       if (e.message && !e.message.includes('Unexpected')) throw e;
     }
   }
-
   return true;
 }
 
 /**
  * Translate a batch of strings using argostranslate via Python.
- * Sends all strings at once for efficiency (model loads once).
  *
- * @param {Array<{key: string, text: string}>} batch - Strings to translate
- * @param {string} from - Source language code
- * @param {string} to - Target language code
- * @returns {Promise<Object<string, string>>} Map of key -> translated text
+ * Interpolation variables like {{ name }}, {count}, ${val} are shielded
+ * before sending and restored after — Argos never sees them.
+ *
+ * @param {Array<{key: string, text: string}>} batch
+ * @param {string} from  Source language code
+ * @param {string} to    Target language code
+ * @returns {Promise<Record<string, string>>}  key → translated text
  */
 export async function translateBatch(batch, from, to) {
   if (batch.length === 0) return {};
 
   const py = await findPython();
+
+  // ── Shield interpolations so Argos never mangles {name} / {{ expr }} ────────
+  const shielded = batch.map((item) => {
+    const { shielded: text, tokens } = shieldInterpolations(item.text);
+    return { key: item.key, text, tokens };
+  });
 
   return new Promise((resolve, reject) => {
     const proc = spawn(py, [PYTHON_SCRIPT, from, to], {
@@ -129,7 +134,7 @@ export async function translateBatch(batch, from, to) {
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     });
 
-    const input = JSON.stringify(batch);
+    const input = JSON.stringify(shielded.map(({ key, text }) => ({ key, text })));
     let stdout = '';
     let stderr = '';
 
@@ -142,34 +147,35 @@ export async function translateBatch(batch, from, to) {
       }
 
       try {
-        // Find the JSON output line (ignore any debug/warning output)
+        // Find the JSON output line (skip debug/warning lines)
         const lines = stdout.split('\n');
-        let result = null;
+        let raw = null;
         for (let i = lines.length - 1; i >= 0; i--) {
           const line = lines[i].trim();
-          if (line.startsWith('{') || line.startsWith('[')) {
-            try {
-              result = JSON.parse(line);
-              break;
-            } catch { /* try previous line */ }
+          if (line.startsWith('[') || line.startsWith('{')) {
+            try { raw = JSON.parse(line); break; } catch { /* try previous */ }
           }
         }
 
-        if (!result) {
+        if (!raw) {
           return reject(new Error(`No valid JSON in Python output: ${stdout.slice(0, 500)}`));
         }
 
-        // Convert array to map
-        const map = {};
-        if (Array.isArray(result)) {
-          for (const item of result) {
-            map[item.key] = item.text;
-          }
+        // Convert array → map, then unshield interpolations
+        const rawMap = {};
+        if (Array.isArray(raw)) {
+          for (const item of raw) rawMap[item.key] = item.text;
         } else {
-          Object.assign(map, result);
+          Object.assign(rawMap, raw);
         }
 
-        resolve(map);
+        const result = {};
+        for (const { key, tokens } of shielded) {
+          const translated = rawMap[key] ?? batch.find((b) => b.key === key)?.text ?? '';
+          result[key] = unshieldInterpolations(translated, tokens);
+        }
+
+        resolve(result);
       } catch (err) {
         reject(new Error(`Failed to parse Python output: ${err.message}\nOutput: ${stdout.slice(0, 500)}`));
       }

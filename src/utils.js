@@ -1,18 +1,42 @@
 import { createHash } from 'crypto';
 
 /**
- * Generate a deterministic, short key from a string.
- * Same input always produces the same key — idempotent across runs.
+ * Generate a readable, slug-based i18n key from a string.
+ * "Submit" → "submit"
+ * "Please enter your email" → "please_enter_your_email"
+ * Falls back to a hash prefix for non-Latin or symbol-only strings.
  */
-export function hashKey(text) {
-  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
-  const hash = createHash('sha256').update(normalized).digest('hex').slice(0, 8);
+export function textKey(text) {
+  const trimmed = text.trim();
+
+  const slug = trimmed
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')   // punctuation → space
+    .replace(/\s+/g, '_')        // spaces → underscores
+    .replace(/^[^a-z]+/, '')     // strip non-alpha prefix
+    .replace(/[^a-z0-9_]/g, '') // remove remaining non-ASCII
+    .replace(/_+/g, '_')         // collapse multiple underscores
+    .replace(/^_|_$/g, '')       // trim underscores
+    .slice(0, 40)
+    .replace(/_+$/, '');
+
+  if (slug && slug.length >= 2 && /[a-z]/.test(slug)) {
+    return slug;
+  }
+
+  // Fallback: hash (for Chinese, Arabic, emoji, symbols, etc.)
+  const hash = createHash('sha256').update(trimmed).digest('hex').slice(0, 8);
   return `key_${hash}`;
 }
 
 /**
- * Determine if a string is "translatable" — i.e. it contains actual
- * human-readable text and not just whitespace, numbers, symbols, or code.
+ * @deprecated Use textKey() instead. Kept for internal backward compat.
+ */
+export const hashKey = textKey;
+
+/**
+ * Determine if a string is "translatable" — contains actual human-readable
+ * text rather than whitespace, numbers, symbols, or code identifiers.
  */
 export function isTranslatable(text) {
   if (!text || typeof text !== 'string') return false;
@@ -27,15 +51,19 @@ export function isTranslatable(text) {
   if (/^[\d.,]+$/.test(trimmed)) return false;
 
   // Skip single characters that are punctuation/symbols
-  if (trimmed.length === 1 && /[^a-zA-Z\u00C0-\u024F\u0400-\u04FF\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/.test(trimmed)) return false;
+  if (
+    trimmed.length === 1 &&
+    /[^a-zA-Z\u00C0-\u024F\u0400-\u04FF\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/.test(trimmed)
+  )
+    return false;
 
-  // Skip things that look like code identifiers (camelCase, snake_case with no spaces)
+  // Skip code identifiers (camelCase, snake_case with no spaces)
   if (/^[a-zA-Z_$][a-zA-Z0-9_$.]*$/.test(trimmed) && !trimmed.includes(' ') && trimmed.length > 1) {
-    // But allow single real words (check if it has vowels or is a common word)
+    // Allow capitalised real words: "Submit", "Cancel", "Home"
     if (/[aeiouAEIOU]/.test(trimmed) && trimmed.length > 2 && /^[A-Z][a-z]+$/.test(trimmed)) {
-      return true; // Likely a real word like "Submit", "Cancel", "Home"
+      return true;
     }
-    // Allow ALL CAPS short words (likely labels)
+    // Allow ALL-CAPS short labels: "OK", "FAQ"
     if (/^[A-Z]{2,12}$/.test(trimmed)) return true;
     return false;
   }
@@ -44,29 +72,80 @@ export function isTranslatable(text) {
   if (/^(https?:\/\/|\/|\.\/|\.\.\/)/.test(trimmed)) return false;
   if (/^[\w.+-]+@[\w.-]+\.\w+$/.test(trimmed)) return false;
 
-  // Skip template expressions that are purely code ({{ something }})
+  // Skip pure template expressions {{ something }}
   if (/^\{\{[^}]+\}\}$/.test(trimmed)) return false;
 
   // Must contain at least one letter from any script
-  if (!/[a-zA-Z\u00C0-\u024F\u0400-\u04FF\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uAC00-\uD7AF]/.test(trimmed)) return false;
+  if (
+    !/[a-zA-Z\u00C0-\u024F\u0400-\u04FF\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uAC00-\uD7AF]/.test(
+      trimmed
+    )
+  )
+    return false;
 
   return true;
 }
 
 /**
- * Check if a string contains interpolation expressions ({{ }}, {}, ${}).
- * Returns the parts if so.
+ * Shield interpolation variables before sending to Argos Translate.
+ * Replaces {{ name }}, {name}, ${name}, %{name} with XML-like tokens <xi/>
+ * that NMT models are trained to preserve verbatim.
+ *
+ * Returns { shielded, tokens } — call unshieldInterpolations() to restore.
+ */
+export function shieldInterpolations(text) {
+  const tokens = [];
+  let shielded = text;
+
+  // Vue {{ expr }} — must come first to avoid matching inner {
+  shielded = shielded.replace(/\{\{[^}]*\}\}/g, (m) => {
+    const i = tokens.length;
+    tokens.push(m);
+    return `<x${i}/>`;
+  });
+
+  // Template literal ${expr}
+  shielded = shielded.replace(/\$\{[^}]*\}/g, (m) => {
+    const i = tokens.length;
+    tokens.push(m);
+    return `<x${i}/>`;
+  });
+
+  // i18next / vue-i18n {varName} or {0}
+  shielded = shielded.replace(/\{[^{}\s][^{}]*\}/g, (m) => {
+    const i = tokens.length;
+    tokens.push(m);
+    return `<x${i}/>`;
+  });
+
+  // Ruby / Rails %{varName}
+  shielded = shielded.replace(/%\{[^}]+\}/g, (m) => {
+    const i = tokens.length;
+    tokens.push(m);
+    return `<x${i}/>`;
+  });
+
+  return { shielded, tokens };
+}
+
+/**
+ * Restore interpolation variables after translation.
+ * Tolerates minor whitespace changes the MT model may introduce.
+ */
+export function unshieldInterpolations(text, tokens) {
+  if (!tokens || tokens.length === 0) return text;
+  return text.replace(/<x(\d+)\s*\/>/gi, (_, idx) => tokens[parseInt(idx, 10)] ?? '');
+}
+
+/**
+ * Check if a string contains interpolation expressions.
  */
 export function parseInterpolation(text) {
-  // Vue-style {{ expr }}
   const vuePattern = /\{\{\s*([^}]+?)\s*\}\}/g;
-  // React/JS-style {expr} or ${expr}
-  const jsPattern = /\$?\{([^}]+)\}/g;
 
   const parts = [];
   let hasInterpolation = false;
 
-  // Check for Vue interpolation
   if (vuePattern.test(text)) {
     hasInterpolation = true;
     vuePattern.lastIndex = 0;

@@ -2,7 +2,7 @@ import * as babelParser from '@babel/parser';
 import _traverse from '@babel/traverse';
 import * as t from '@babel/types';
 import MagicString from 'magic-string';
-import { hashKey, isTranslatable } from '../utils.js';
+import { textKey, isTranslatable } from '../utils.js';
 
 const traverse = _traverse.default || _traverse;
 
@@ -55,7 +55,7 @@ export function parseJs(source, filePath, project) {
 
       if (!translatableKeys.has(keyName)) return;
 
-      const key = hashKey(valueNode.value);
+      const key = textKey(valueNode.value);
       const tFunc = project.type === 'vue' ? `this.$t('${key}')` : `t('${key}')`;
 
       s.overwrite(valueNode.start, valueNode.end, tFunc);
@@ -80,7 +80,7 @@ export function parseJs(source, filePath, project) {
       if (['alert', 'confirm', 'prompt'].includes(calleeName)) {
         const arg = path.node.arguments[0];
         if (arg && arg.type === 'StringLiteral' && isTranslatable(arg.value)) {
-          const key = hashKey(arg.value);
+          const key = textKey(arg.value);
           const tFunc = project.type === 'vue' ? `this.$t('${key}')` : `t('${key}')`;
           s.overwrite(arg.start, arg.end, tFunc);
           extracted.push({ key, text: arg.value, context: 'js-call' });
@@ -106,7 +106,7 @@ export function parseJs(source, filePath, project) {
         ]);
 
         if (domProps.has(propName)) {
-          const key = hashKey(right.value);
+          const key = textKey(right.value);
           const tFunc = project.type === 'vanilla'
             ? `i18n.t('${key}')`
             : project.type === 'vue'

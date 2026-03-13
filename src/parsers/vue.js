@@ -1,6 +1,6 @@
 import * as compiler from '@vue/compiler-dom';
 import MagicString from 'magic-string';
-import { hashKey, isTranslatable, parseInterpolation } from '../utils.js';
+import { textKey, isTranslatable, parseInterpolation } from '../utils.js';
 
 /**
  * Non-translatable attribute names.
@@ -80,7 +80,7 @@ function walkTemplate(nodes, s, baseOffset, extracted) {
     if (node.type === 2) {
       const text = node.content.trim();
       if (isTranslatable(text)) {
-        const key = hashKey(text);
+        const key = textKey(text);
         const start = baseOffset + node.loc.start.offset;
         const end = baseOffset + node.loc.end.offset;
 
@@ -108,7 +108,7 @@ function walkTemplate(nodes, s, baseOffset, extracted) {
 
             if (ATTR_WHITELIST.has(attrName) && isTranslatable(prop.value.content)) {
               const text = prop.value.content;
-              const key = hashKey(text);
+              const key = textKey(text);
               const attrStart = baseOffset + prop.loc.start.offset;
               const attrEnd = baseOffset + prop.loc.end.offset;
 
@@ -168,7 +168,7 @@ function extractScriptStrings(scriptContent, s, baseOffset, extracted, isSetup) 
     while ((match = pattern.exec(scriptContent)) !== null) {
       const text = match[3];
       if (isTranslatable(text) && text.length > 1) {
-        const key = hashKey(text);
+        const key = textKey(text);
         const fullMatchStart = baseOffset + match.index;
         const quoteChar = match[2];
         const textStart = baseOffset + match.index + match[0].indexOf(quoteChar + text);
@@ -196,7 +196,7 @@ function extractTemplateRegex(source, s, extracted) {
   while ((match = textPattern.exec(source)) !== null) {
     const text = match[1].trim();
     if (isTranslatable(text)) {
-      const key = hashKey(text);
+      const key = textKey(text);
       const textStart = match.index + 1;
       const textEnd = textStart + match[1].length;
       if (!isAlreadyWrapped(source, textStart, textEnd)) {

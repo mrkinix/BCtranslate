@@ -1,6 +1,6 @@
 {
   "name": "bctranslate",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CLI to transform source files into i18n-ready code with automatic translation via argostranslate",
   "type": "module",
   "bin": {
