@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title data-i18n-title="key_8001dbc8">A simple title</title>
+</head>
+<body>
+    <h1 data-i18n="key_7509e5bd">Hello world!</h1>
+    <p data-i18n="key_448f0e23">This is a paragraph with a <strong>bold</strong> word.</p>
+    <p data-i18n="key_2197e903">Another paragraph.</p>
+    <a href="#" data-i18n="key_5a346444">A link</a>
+</body>
+</html>

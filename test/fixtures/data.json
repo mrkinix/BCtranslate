@@ -1,0 +1,27 @@
+{
+  "app": {
+    "name": "My Application",
+    "description": "A powerful tool for managing your projects",
+    "version": "1.0.0"
+  },
+  "menu": {
+    "home": "Home",
+    "about": "About Us",
+    "contact": "Contact Us",
+    "settings": "Settings"
+  },
+  "messages": {
+    "welcome": "Welcome to the application",
+    "goodbye": "Thank you for visiting",
+    "error": "Something went wrong. Please try again."
+  },
+  "buttons": {
+    "submit": "Submit",
+    "cancel": "Cancel",
+    "save": "Save Changes"
+  },
+  "items": [
+    "First item in the list",
+    "Second item in the list"
+  ]
+}

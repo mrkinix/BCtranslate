@@ -1,0 +1,50 @@
+{
+  "name": "bctranslate",
+  "version": "1.0.0",
+  "description": "CLI to transform source files into i18n-ready code with automatic translation via argostranslate",
+  "type": "module",
+  "bin": {
+    "bctranslate": "./bin/bctranslate.js"
+  },
+  "main": "src/index.js",
+  "files": [
+    "bin/",
+    "src/",
+    "python/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/run.js"
+  },
+  "dependencies": {
+    "@babel/generator": "^7.24.0",
+    "@babel/parser": "^7.24.0",
+    "@babel/traverse": "^7.24.0",
+    "@babel/types": "^7.24.0",
+    "@vue/compiler-dom": "^3.4.0",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "glob": "^10.3.0",
+    "inquirer": "^9.3.8",
+    "magic-string": "^0.30.10"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "i18n",
+    "translate",
+    "internationalization",
+    "vue",
+    "react",
+    "cli",
+    "argostranslate",
+    "localization",
+    "l10n",
+    "vue-i18n",
+    "react-i18next",
+    "offline"
+  ],
+  "license": "MIT",
+  "preferGlobal": true
+}
