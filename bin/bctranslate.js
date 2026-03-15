@@ -92,7 +92,7 @@ async function resolveFiles(pathArg, cwd, project) {
 }
 
 // ── Translation runner — uses global batching (Python spawned once) ───────────
-async function runTranslation({ pathArg, from, to, localesDir, dryRun, outdir, verbose, jsonMode, setup, cwd }) {
+async function runTranslation({ pathArg, from, to, localesDir, dryRun, outdir, verbose, jsonMode, profile, setup, autoImport, cwd }) {
   const project = detectProject(cwd);
   console.log(chalk.green(`  ✓ Project type: ${chalk.bold(project.type)}`));
 
@@ -106,7 +106,7 @@ async function runTranslation({ pathArg, from, to, localesDir, dryRun, outdir, v
 
   if (setup !== false) {
     const resolvedLocalesDir = localesDir ? resolve(cwd, localesDir) : undefined;
-    await ensureI18nSetup(cwd, project, from, to, resolvedLocalesDir);
+    await ensureI18nSetup(cwd, project, from, to, resolvedLocalesDir, { autoImport });
   }
 
   // Global batch: all files parsed first, ONE Python call, then all writes
@@ -119,6 +119,7 @@ async function runTranslation({ pathArg, from, to, localesDir, dryRun, outdir, v
     cwd,
     verbose,
     jsonMode,
+    profile: !!profile,
     localesDir: localesDir ? resolve(cwd, localesDir) : undefined,
   });
 
@@ -279,13 +280,16 @@ program
   .option('-d, --dry-run', 'Preview changes without writing files', false)
   .option('-o, --outdir <dir>', 'Output directory for translated files')
   .option('--no-setup', 'Skip i18n setup file generation')
+  .option('--no-import', 'Do not auto-inject i18n imports/script tags')
   .option('--json-mode <mode>', 'JSON translation mode: values or full', 'values')
+  .option('--profile', 'Print timing breakdown', false)
   .option('-v, --verbose', 'Show per-file diffs and skipped files', false)
   .action(async (pathArg, fromArg, keyword, langArg, opts) => {
     console.log(chalk.cyan.bold('\n  ⚡ bctranslate\n'));
 
     const invokedCwd = process.cwd();
     const config     = loadConfig(invokedCwd);
+    const autoImport = opts.import !== false && (config?.autoImport !== false);
 
     let cwd = invokedCwd;
     if (!config && pathArg) {
@@ -347,7 +351,9 @@ program
         outdir:     opts.outdir,
         verbose:    opts.verbose,
         jsonMode:   opts.jsonMode,
+        profile:    opts.profile,
         setup:      opts.setup,
+        autoImport,
         cwd,
       });
 

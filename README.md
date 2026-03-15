@@ -1,5 +1,7 @@
 # bctranslate ⚡
 
+# Notice: This app is in Beta mode, work in progress; currently works for html files, contribution is welcome at: [BCtranslate github repo](https://github.com/mrkinix/bctranslate)
+
 `bctranslate` is a command-line tool to automatically transform source code into an i18n-ready format. It extracts hardcoded strings from your files, replaces them with calls to a translation function, and generates locale files with translations powered by [Argos Translate](https://www.argosopentech.com/).
 
 It's designed to be a quick and easy way to "bake in" internationalization into a project with minimal refactoring.

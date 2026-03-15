@@ -127,11 +127,13 @@ export async function writeFileResult(parseResult, translations, opts) {
  */
 export async function translateAllFiles(files, opts) {
   const { from, to, cwd, project, verbose, localesDir } = opts;
+  const prof0 = opts.profile ? Date.now() : 0;
 
   const resolvedLocaleDir = opts.outdir ? join(opts.outdir, 'locales') : (localesDir || getLocaleDir(cwd, project));
   const existingTarget    = loadLocale(resolvedLocaleDir, to);
 
   // Phase 1 — parse
+  const profParse0 = opts.profile ? Date.now() : 0;
   const parsed = [];
   for (const file of files) {
     try {
@@ -141,6 +143,7 @@ export async function translateAllFiles(files, opts) {
       if (verbose) console.error(`  Parse error ${file}: ${err.message}`);
     }
   }
+  const profParse1 = opts.profile ? Date.now() : 0;
 
   if (parsed.length === 0) return [];
 
@@ -157,14 +160,17 @@ export async function translateAllFiles(files, opts) {
   }
 
   // Phase 3 — translate once (Python spawned exactly once, model loads once)
+  const profTrans0 = opts.profile ? Date.now() : 0;
   let newTranslations = {};
   if (needed.length > 0) {
     newTranslations = await translateBatch(needed, from, to);
   }
+  const profTrans1 = opts.profile ? Date.now() : 0;
 
   const allTranslations = { ...existingTarget, ...newTranslations };
 
   // Phase 4 — write files
+  const profWrite0 = opts.profile ? Date.now() : 0;
   if (!opts.dryRun) {
     console.log(`  → Locale dir: ${resolvedLocaleDir}`);
   }
@@ -180,6 +186,14 @@ export async function translateAllFiles(files, opts) {
       console.error(`  ✗ Write error ${relative(cwd, parseResult.filePath)}: ${err.message}`);
       results.push({ count: 0, skipped: 0, relativePath: relative(cwd, parseResult.filePath) });
     }
+  }
+  const profWrite1 = opts.profile ? Date.now() : 0;
+
+  if (opts.profile) {
+    const total = Date.now() - prof0;
+    console.log(
+      `  Timing: parse ${profParse1 - profParse0}ms | translate ${profTrans1 - profTrans0}ms | write ${profWrite1 - profWrite0}ms | total ${total}ms`
+    );
   }
 
   return results;

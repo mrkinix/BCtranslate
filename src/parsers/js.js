@@ -20,13 +20,6 @@ export function parseJs(source, filePath, project) {
     return `t('${key}')`;
   };
 
-  const translatableVarNames = new Set([
-    'title', 'pageTitle', 'heading', 'subheading', 'header', 'subtitle',
-    'label', 'placeholder', 'message', 'text', 'description', 'tooltip', 'hint', 'caption',
-    'error', 'errorMessage', 'success', 'successMessage',
-    'buttonText', 'linkText',
-  ]);
-
   const translatableAttrNames = new Set([
     'title',
     'placeholder',
@@ -58,26 +51,6 @@ export function parseJs(source, filePath, project) {
 
   // Track which string literals to translate
   traverse(ast, {
-    VariableDeclarator(path) {
-      const { id, init } = path.node;
-      if (!init) return;
-      if (id.type !== 'Identifier') return;
-      if (!translatableVarNames.has(id.name)) return;
-
-      let value = null;
-      if (init.type === 'StringLiteral') value = init.value;
-      else if (init.type === 'TemplateLiteral' && init.expressions.length === 0) {
-        value = init.quasis[0]?.value?.cooked ?? '';
-      }
-
-      if (typeof value !== 'string' || !isTranslatable(value)) return;
-
-      const key = contextKey(value, filePath);
-      const tFunc = tFuncFor(key);
-      s.overwrite(init.start, init.end, tFunc);
-      extracted.push({ key, text: value, context: `js-var-${id.name}` });
-    },
-
     // Object property values with translatable keys
     ObjectProperty(path) {
       const keyNode = path.node.key;

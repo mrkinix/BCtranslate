@@ -37,6 +37,26 @@ function stripTags(html) {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function maybeWrapInlineScriptForI18nReady(script) {
+  if (!/\bi18n\.t\s*\(/.test(script)) return script;
+  if (/\bi18n\.ready\b/.test(script)) return script;
+  if (!/\bcreateApp\b|\bapp\.mount\b|document\./.test(script)) return script;
+
+  const trimmed = script.trim();
+  const indent = (script.match(/^\s*/) || [''])[0];
+  const body = trimmed
+    .split('\n')
+    .map((l) => (l.length ? indent + '  ' + l : l))
+    .join('\n');
+
+  return (
+    `${indent}(async () => {\n` +
+    `${indent}  if (i18n.ready) await i18n.ready;\n` +
+    `${body}\n` +
+    `${indent}})();`
+  );
+}
+
 /**
  * Parse an HTML file and extract translatable strings.
  * For vanilla HTML, we use data-i18n attributes instead of $t() calls.
@@ -85,7 +105,8 @@ export function parseHtml(source, filePath, project) {
         const scriptJs = source.slice(openTagEnd + 1, closeTagStart);
         const jsResult = parseJs(scriptJs, filePath, project);
         if (jsResult.modified) {
-          s.overwrite(openTagEnd + 1, closeTagStart, jsResult.source);
+          const wrapped = maybeWrapInlineScriptForI18nReady(jsResult.source);
+          s.overwrite(openTagEnd + 1, closeTagStart, wrapped);
           extracted.push(...jsResult.extracted);
         }
       }

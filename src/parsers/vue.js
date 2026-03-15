@@ -41,9 +41,17 @@ export function parseVue(source, filePath) {
   const extracted = [];
   const s = new MagicString(source);
 
-  // Always use t() for consistency, as promised in the README.
-  const tpl = (key) => `t('${key}')`;
-  const scr = (key) => `t('${key}')`;
+  const scriptSetupMatch = source.match(/(<script\b[^>]*\bsetup\b[^>]*>)([\s\S]*?)<\/script>/i);
+  const hasScriptSetup = !!scriptSetupMatch;
+
+  // Prefer what the file already uses in templates: `$t()` vs `t()`.
+  const templateBlockMatch = source.match(/<template\b[^>]*>([\s\S]*?)<\/template>/);
+  const templateBlock = templateBlockMatch ? templateBlockMatch[1] : '';
+  const templatePrefersDollarT = /\$t\s*\(/.test(templateBlock);
+  const templatePrefersT = !templatePrefersDollarT && /\bt\s*\(/.test(templateBlock);
+
+  const tpl = (key) => (templatePrefersT ? `t('${key}')` : `$t('${key}')`);
+  const scr = (key) => (hasScriptSetup ? `t('${key}')` : `this.$t('${key}')`);
 
   // ── Template ────────────────────────────────────────────────────────────────
   const templateMatch = source.match(/<template\b[^>]*>([\s\S]*?)<\/template>/);
@@ -60,21 +68,27 @@ export function parseVue(source, filePath) {
     }
   }
 
-  // ── Script ──────────────────────────────────────────────────────────────────
-  const scriptMatch = source.match(/<script\b[^>]*>([\s\S]*?)<\/script>/);
-  if (scriptMatch) {
-    const scriptContent = scriptMatch[1];
+  // ── Script (prefer <script setup>, else first non-setup <script>) ────────────
+  if (scriptSetupMatch) {
+    const scriptContent = scriptSetupMatch[2];
     const scriptOffset =
-      source.indexOf(scriptMatch[0]) + scriptMatch[0].indexOf(scriptContent);
+      source.indexOf(scriptSetupMatch[0]) + scriptSetupMatch[0].indexOf(scriptContent);
     extractScriptStrings(scriptContent, s, scriptOffset, extracted, filePath, scr);
+  } else {
+    const scriptMatch = source.match(/<script\b(?![^>]*\bsetup\b)[^>]*>([\s\S]*?)<\/script>/i);
+    if (scriptMatch) {
+      const scriptContent = scriptMatch[1];
+      const scriptOffset =
+        source.indexOf(scriptMatch[0]) + scriptMatch[0].indexOf(scriptContent);
+      extractScriptStrings(scriptContent, s, scriptOffset, extracted, filePath, scr);
+    }
   }
 
   // ── Inject `const { t } = useI18n()` if not yet declared ────────
-  if (extracted.length > 0) {
-    const scriptSetupMatch = source.match(/(<script\b[^>]*\bsetup\b[^>]*>)([\s\S]*?)<\/script>/i);
+  if (extracted.length > 0 && hasScriptSetup) {
     const hasT = /const\s*\{[^}]*\bt\b[^}]*\}\s*=/.test(source);
-    
-    if (scriptSetupMatch && !hasT) {
+
+    if (!hasT) {
       const insertAt = source.indexOf(scriptSetupMatch[0]) + scriptSetupMatch[1].length;
       const needsImport = !source.includes('useI18n');
       const importLine = needsImport ? `import { useI18n } from 'vue-i18n';\n` : '';
@@ -244,8 +258,7 @@ function isAlreadyWrappedScript(scriptContent, pos) {
 function isAlreadyWrapped(source, start, end) {
   // Look back 25 chars for an open t( call — node is inside an interpolation
   const before = source.slice(Math.max(0, start - 25), start);
-  // Note: We only check for `t` now, not `$t`.
-  return /t\s*\(\s*['"]/.test(before);
+  return /\$?t\s*\(\s*['"]/.test(before);
 }
 
 function extractTemplateRegex(source, s, extracted, filePath, tpl) {
