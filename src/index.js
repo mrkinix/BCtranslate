@@ -128,7 +128,7 @@ export async function writeFileResult(parseResult, translations, opts) {
 export async function translateAllFiles(files, opts) {
   const { from, to, cwd, project, verbose, localesDir } = opts;
 
-  const resolvedLocaleDir = localesDir || getLocaleDir(cwd, project);
+  const resolvedLocaleDir = opts.outdir ? join(opts.outdir, 'locales') : (localesDir || getLocaleDir(cwd, project));
   const existingTarget    = loadLocale(resolvedLocaleDir, to);
 
   // Phase 1 — parse
@@ -165,6 +165,9 @@ export async function translateAllFiles(files, opts) {
   const allTranslations = { ...existingTarget, ...newTranslations };
 
   // Phase 4 — write files
+  if (!opts.dryRun) {
+    console.log(`  → Locale dir: ${resolvedLocaleDir}`);
+  }
   const results = [];
   for (const parseResult of parsed) {
     try {
@@ -174,7 +177,7 @@ export async function translateAllFiles(files, opts) {
       });
       results.push(r);
     } catch (err) {
-      if (verbose) console.error(`  Write error ${parseResult.filePath}: ${err.message}`);
+      console.error(`  ✗ Write error ${relative(cwd, parseResult.filePath)}: ${err.message}`);
       results.push({ count: 0, skipped: 0, relativePath: relative(cwd, parseResult.filePath) });
     }
   }

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { join } from 'path';
 
 /**
  * Determine the locale directory path based on project type.
@@ -8,6 +8,7 @@ export function getLocaleDir(cwd, project) {
   const candidates = [
     join(cwd, 'src', 'locales'),
     join(cwd, 'src', 'i18n', 'locales'),
+    join(cwd, 'src', 'i18n'),
     join(cwd, 'locales'),
     join(cwd, 'src', 'lang'),
     join(cwd, 'public', 'locales'),
@@ -25,13 +26,53 @@ export function getLocaleDir(cwd, project) {
 }
 
 /**
- * Load an existing locale file, or return empty object.
+ * Flatten a nested JSON object to dot-notation keys.
+ * { home: { notes: 'Notes' } } → { 'home.notes': 'Notes' }
+ */
+function flattenKeys(obj, prefix = '') {
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const fullKey = prefix ? `${prefix}.${key}` : key;
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      Object.assign(result, flattenKeys(value, fullKey));
+    } else {
+      result[fullKey] = value;
+    }
+  }
+  return result;
+}
+
+/**
+ * Unflatten dot-notation keys to a nested JSON object.
+ * { 'home.notes': 'Notes' } → { home: { notes: 'Notes' } }
+ */
+function unflattenKeys(flat) {
+  const result = {};
+  for (const [dotKey, value] of Object.entries(flat)) {
+    const parts = dotKey.split('.');
+    let obj = result;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (typeof obj[parts[i]] !== 'object' || obj[parts[i]] === null) {
+        obj[parts[i]] = {};
+      }
+      obj = obj[parts[i]];
+    }
+    obj[parts[parts.length - 1]] = value;
+  }
+  return result;
+}
+
+/**
+ * Load an existing locale file and return flat dot-notation keys.
+ * Handles both nested JSON (vue-i18n standard) and legacy flat format.
  */
 export function loadLocale(localeDir, langCode) {
   const filePath = join(localeDir, `${langCode}.json`);
   if (existsSync(filePath)) {
     try {
-      return JSON.parse(readFileSync(filePath, 'utf-8'));
+      const raw = JSON.parse(readFileSync(filePath, 'utf-8'));
+      // Flatten nested objects to dot-notation for internal use
+      return flattenKeys(raw);
     } catch {
       return {};
     }
@@ -41,15 +82,15 @@ export function loadLocale(localeDir, langCode) {
 
 /**
  * Save a locale file, merging with existing keys.
+ * Writes nested JSON (standard for vue-i18n and react-i18next).
  */
 export function saveLocale(localeDir, langCode, newEntries) {
   mkdirSync(localeDir, { recursive: true });
 
   const filePath = join(localeDir, `${langCode}.json`);
-  const existing = loadLocale(localeDir, langCode);
+  const existing = loadLocale(localeDir, langCode); // already flat
 
-  // Merge: new entries take precedence for new keys,
-  // but don't overwrite existing translations (idempotent)
+  // Merge: don't overwrite existing translations
   const merged = { ...existing };
   for (const [key, value] of Object.entries(newEntries)) {
     if (!(key in merged)) {
@@ -57,6 +98,8 @@ export function saveLocale(localeDir, langCode, newEntries) {
     }
   }
 
-  writeFileSync(filePath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
+  // Write as nested JSON for i18n library compatibility
+  const nested = unflattenKeys(merged);
+  writeFileSync(filePath, JSON.stringify(nested, null, 2) + '\n', 'utf-8');
   return filePath;
 }

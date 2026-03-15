@@ -1,4 +1,16 @@
 import { createHash } from 'crypto';
+import { basename, extname } from 'path';
+
+// Words too generic to use as the sole semantic component of a key
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall',
+  'should', 'may', 'might', 'must', 'can', 'could',
+  'to', 'for', 'and', 'or', 'but', 'of', 'in', 'on', 'at', 'by',
+  'as', 'if', 'its', 'it', 'this', 'that', 'these', 'those',
+  'my', 'your', 'our', 'their', 'with', 'from', 'up', 'about',
+  'no', 'not', 'so',
+]);
 
 /**
  * Generate a readable, slug-based i18n key from a string.
@@ -30,7 +42,52 @@ export function textKey(text) {
 }
 
 /**
- * @deprecated Use textKey() instead. Kept for internal backward compat.
+ * Generate a context-aware i18n key using the component name as namespace
+ * and key content words as the slug.
+ *
+ * "Notes"           in HomeView.vue  → home.notes
+ * "Quick Note"      in HomeView.vue  → home.quickNote
+ * "View livestock"  in HomeView.vue  → home.viewLivestock
+ * "Submit"          in LoginForm.vue → loginForm.submit
+ * "你好"             in App.vue       → app.key_3d2a1f
+ *
+ * @param {string} text     The source string to key
+ * @param {string} filePath Absolute or relative path of the source file
+ */
+export function contextKey(text, filePath) {
+  const trimmed = text.trim();
+
+  // ── Namespace: derive from filename ──────────────────────────────────────
+  const fileName = basename(filePath, extname(filePath));
+  // Strip common Vue/React suffixes: HomeView → Home, UserCard → User, etc.
+  const stripped = fileName.replace(
+    /(?:View|Component|Page|Screen|Modal|Dialog|Card|Panel|Widget|Layout|Container)$/,
+    ''
+  ) || fileName;
+  // camelCase namespace: "UserProfile" → "userProfile", "home" → "home"
+  const ns = stripped[0].toLowerCase() + stripped.slice(1);
+
+  // ── Slug: 1-3 meaningful words in camelCase ───────────────────────────────
+  const words = trimmed
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.toLowerCase())
+    .filter((w) => w.length >= 2 && /[a-z]/.test(w) && !STOP_WORDS.has(w));
+
+  if (!words.length) {
+    // Non-Latin scripts, emoji, or all stop words — fall back to hash suffix
+    const hash = createHash('sha256').update(trimmed).digest('hex').slice(0, 6);
+    return `${ns}.key${hash}`;
+  }
+
+  const slug =
+    words[0] + words.slice(1, 3).map((w) => w[0].toUpperCase() + w.slice(1)).join('');
+
+  return `${ns}.${slug}`;
+}
+
+/**
+ * @deprecated Use contextKey() for new code. textKey() kept for non-file contexts.
  */
 export const hashKey = textKey;
 

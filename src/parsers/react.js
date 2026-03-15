@@ -1,7 +1,7 @@
 import * as babelParser from '@babel/parser';
 import _traverse from '@babel/traverse';
 import MagicString from 'magic-string';
-import { textKey, isTranslatable } from '../utils.js';
+import { contextKey, isTranslatable } from '../utils.js';
 
 // Handle ESM default export quirks
 const traverse = _traverse.default || _traverse;
@@ -78,7 +78,7 @@ export function parseReact(source, filePath) {
       const text = path.node.value.trim();
       if (!isTranslatable(text)) return;
 
-      const key = textKey(text);
+      const key = contextKey(text, filePath);
       const { start, end } = path.node;
       const original = path.node.value;
       const leadingWs = original.match(/^(\s*)/)[1];
@@ -102,7 +102,7 @@ export function parseReact(source, filePath) {
       if (!isTranslatable(text)) return;
       if (!ATTR_WHITELIST.has(name) && text.length < 3) return;
 
-      const key = textKey(text);
+      const key = contextKey(text, filePath);
       s.overwrite(path.node.start, path.node.end, `${name}={t('${key}')}`);
       extracted.push({ key, text, context: `jsx-attr-${name}` });
 
@@ -117,7 +117,7 @@ export function parseReact(source, filePath) {
 
       const arg = path.node.arguments[0];
       if (arg?.type === 'StringLiteral' && isTranslatable(arg.value)) {
-        const key = textKey(arg.value);
+        const key = contextKey(arg.value, filePath);
         s.overwrite(arg.start, arg.end, `t('${key}')`);
         extracted.push({ key, text: arg.value, context: 'call-arg' });
       }

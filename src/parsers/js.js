@@ -2,7 +2,7 @@ import * as babelParser from '@babel/parser';
 import _traverse from '@babel/traverse';
 import * as t from '@babel/types';
 import MagicString from 'magic-string';
-import { textKey, isTranslatable } from '../utils.js';
+import { contextKey, isTranslatable } from '../utils.js';
 
 const traverse = _traverse.default || _traverse;
 
@@ -13,6 +13,29 @@ const traverse = _traverse.default || _traverse;
 export function parseJs(source, filePath, project) {
   const extracted = [];
   const isTS = filePath.endsWith('.ts');
+
+  const tFuncFor = (key) => {
+    if (project.type === 'vanilla') return `i18n.t('${key}')`;
+    if (project.type === 'vue') return `this.$t('${key}')`;
+    return `t('${key}')`;
+  };
+
+  const translatableVarNames = new Set([
+    'title', 'pageTitle', 'heading', 'subheading', 'header', 'subtitle',
+    'label', 'placeholder', 'message', 'text', 'description', 'tooltip', 'hint', 'caption',
+    'error', 'errorMessage', 'success', 'successMessage',
+    'buttonText', 'linkText',
+  ]);
+
+  const translatableAttrNames = new Set([
+    'title',
+    'placeholder',
+    'label',
+    'alt',
+    'aria-label',
+    'aria-placeholder',
+    'aria-description',
+  ]);
 
   let ast;
   try {
@@ -35,6 +58,26 @@ export function parseJs(source, filePath, project) {
 
   // Track which string literals to translate
   traverse(ast, {
+    VariableDeclarator(path) {
+      const { id, init } = path.node;
+      if (!init) return;
+      if (id.type !== 'Identifier') return;
+      if (!translatableVarNames.has(id.name)) return;
+
+      let value = null;
+      if (init.type === 'StringLiteral') value = init.value;
+      else if (init.type === 'TemplateLiteral' && init.expressions.length === 0) {
+        value = init.quasis[0]?.value?.cooked ?? '';
+      }
+
+      if (typeof value !== 'string' || !isTranslatable(value)) return;
+
+      const key = contextKey(value, filePath);
+      const tFunc = tFuncFor(key);
+      s.overwrite(init.start, init.end, tFunc);
+      extracted.push({ key, text: value, context: `js-var-${id.name}` });
+    },
+
     // Object property values with translatable keys
     ObjectProperty(path) {
       const keyNode = path.node.key;
@@ -55,8 +98,8 @@ export function parseJs(source, filePath, project) {
 
       if (!translatableKeys.has(keyName)) return;
 
-      const key = textKey(valueNode.value);
-      const tFunc = project.type === 'vue' ? `this.$t('${key}')` : `t('${key}')`;
+      const key = contextKey(valueNode.value, filePath);
+      const tFunc = tFuncFor(key);
 
       s.overwrite(valueNode.start, valueNode.end, tFunc);
       extracted.push({ key, text: valueNode.value, context: `js-prop-${keyName}` });
@@ -80,10 +123,26 @@ export function parseJs(source, filePath, project) {
       if (['alert', 'confirm', 'prompt'].includes(calleeName)) {
         const arg = path.node.arguments[0];
         if (arg && arg.type === 'StringLiteral' && isTranslatable(arg.value)) {
-          const key = textKey(arg.value);
-          const tFunc = project.type === 'vue' ? `this.$t('${key}')` : `t('${key}')`;
+          const key = contextKey(arg.value, filePath);
+          const tFunc = tFuncFor(key);
           s.overwrite(arg.start, arg.end, tFunc);
           extracted.push({ key, text: arg.value, context: 'js-call' });
+        }
+      }
+
+      // element.setAttribute('title', '...')
+      if (callee.type === 'MemberExpression' && callee.property?.name === 'setAttribute') {
+        const [nameArg, valueArg] = path.node.arguments;
+        if (
+          nameArg?.type === 'StringLiteral' &&
+          valueArg?.type === 'StringLiteral' &&
+          translatableAttrNames.has(nameArg.value) &&
+          isTranslatable(valueArg.value)
+        ) {
+          const key = contextKey(valueArg.value, filePath);
+          const tFunc = tFuncFor(key);
+          s.overwrite(valueArg.start, valueArg.end, tFunc);
+          extracted.push({ key, text: valueArg.value, context: `js-attr-${nameArg.value}` });
         }
       }
 
@@ -106,12 +165,8 @@ export function parseJs(source, filePath, project) {
         ]);
 
         if (domProps.has(propName)) {
-          const key = textKey(right.value);
-          const tFunc = project.type === 'vanilla'
-            ? `i18n.t('${key}')`
-            : project.type === 'vue'
-              ? `this.$t('${key}')`
-              : `t('${key}')`;
+          const key = contextKey(right.value, filePath);
+          const tFunc = tFuncFor(key);
 
           s.overwrite(right.start, right.end, tFunc);
           extracted.push({ key, text: right.value, context: `js-dom-${propName}` });

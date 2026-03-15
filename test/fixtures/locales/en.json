@@ -1,0 +1,19 @@
+{
+  "a_simple_title": "A simple title",
+  "hello_world": "Hello world!",
+  "this_is_a_paragraph_with_a_strong_bold_s": "This is a paragraph with a <strong>bold</strong> word.",
+  "another_paragraph": "Another paragraph.",
+  "a_link": "A link",
+  "welcome_to_our_application": "Welcome to our application",
+  "this_is_a_paragraph_with_some_text": "This is a paragraph with some text.",
+  "enter_your_name": "Enter your name",
+  "click_to_submit": "Click to submit",
+  "submit": "Submit",
+  "an_error_occurred": "An error occurred",
+  "everything_is_fine": "Everything is fine",
+  "lorem_ipsum_dolor_sit_amet_consectetur_a": "Lorem ipsum dolor sit amet consectetur adipisicing elit. Blanditiis ullam culpa facere voluptas cupiditate dolore eos dicta placeat ratione, ipsam vel commodi sint? Quasi similique explicabo atque quisquam repellendus odio!",
+  "companies_typically_follow_a_hierarchica": "Companies typically follow a hierarchical structure with a board, executives, and functional departments, though variations exist like functional, divisional, or matrix models. This setup ensures clear roles, accountability, and efficiency in achieving business goals. Top Leadership The board of directors and shareholders provide oversight and funding, setting strategic direction. CEOs lead overall operations and performance, while CFOs manage finances and risks—both critical for long-term success and investor confidence. COOs handle day-to-day execution, ensuring operational efficiency",
+  "company_logo": "Company Logo",
+  "dashboard_overview": "Dashboard Overview",
+  "welcome_back_user": "Welcome back, user!"
+}

@@ -1,6 +1,7 @@
 import MagicString from 'magic-string';
 import { parse, NodeTypes } from '@vue/compiler-dom';
-import { textKey, isTranslatable } from '../utils.js';
+import { parseJs } from './js.js';
+import { contextKey, isTranslatable } from '../utils.js';
 
 const ATTR_WHITELIST = new Set([
   'title',
@@ -30,7 +31,7 @@ const CONTENT_TAGS = new Set([
   'td',
 ]);
 
-const SKIP_TAGS = new Set(['script', 'style', 'noscript']);
+const SKIP_TAGS = new Set(['style', 'noscript']);
 
 function stripTags(html) {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -71,6 +72,27 @@ export function parseHtml(source, filePath, project) {
 
     const openTagText = source.slice(node.loc.start.offset, openTagEnd);
 
+    // Special case: inline <script> blocks inside HTML
+    if (tag === 'script' && !node.isSelfClosing) {
+      const hasSrc = (node.props || []).some(
+        (p) => p.type === NodeTypes.ATTRIBUTE && p.name === 'src'
+      );
+      if (hasSrc) return;
+
+      const closeRel = node.loc.source.lastIndexOf('</');
+      if (closeRel > -1) {
+        const closeTagStart = node.loc.start.offset + closeRel;
+        const scriptJs = source.slice(openTagEnd + 1, closeTagStart);
+        const jsResult = parseJs(scriptJs, filePath, project);
+        if (jsResult.modified) {
+          s.overwrite(openTagEnd + 1, closeTagStart, jsResult.source);
+          extracted.push(...jsResult.extracted);
+        }
+      }
+
+      return;
+    }
+
     // 1) Extract translatable attributes
     for (const prop of node.props || []) {
       if (prop.type !== NodeTypes.ATTRIBUTE) continue;
@@ -82,7 +104,7 @@ export function parseHtml(source, filePath, project) {
       const marker = `data-i18n-${name}`;
       if (openTagText.includes(marker)) continue;
 
-      const key = textKey(value);
+      const key = contextKey(value, filePath);
       s.appendRight(prop.loc.end.offset, ` ${marker}="${key}"`);
       extracted.push({ key, text: value, context: `html-attr-${name}` });
     }
@@ -98,7 +120,7 @@ export function parseHtml(source, filePath, project) {
 
         const marker = tag === 'title' ? 'data-i18n-title' : 'data-i18n';
         if (!openTagText.includes(marker) && isTranslatable(plain)) {
-          const key = textKey(text);
+          const key = contextKey(text, filePath);
           s.appendLeft(openTagEnd, ` ${marker}="${key}"`);
           extracted.push({ key, text, context: `html-inner-${tag}` });
         }

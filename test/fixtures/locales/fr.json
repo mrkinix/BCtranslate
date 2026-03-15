@@ -1,0 +1,19 @@
+{
+  "a_simple_title": "Un titre simple",
+  "hello_world": "Bonjour !",
+  "this_is_a_paragraph_with_a_strong_bold_s": "C'est un paragraphe avec un mot <strong>bold</strong>.",
+  "another_paragraph": "Un autre paragraphe.",
+  "a_link": "Un lien",
+  "welcome_to_our_application": "Bienvenue dans notre candidature",
+  "this_is_a_paragraph_with_some_text": "C'est un paragraphe avec un certain texte.",
+  "enter_your_name": "Saisissez votre nom",
+  "click_to_submit": "Cliquez pour soumettre",
+  "submit": "Soumettre",
+  "an_error_occurred": "Une erreur s'est produite",
+  "everything_is_fine": "Tout va bien",
+  "lorem_ipsum_dolor_sit_amet_consectetur_a": "Lorem ipsum dolor sit amet consectetur adipisging elit. Blanditiis ullam culpa facere voluptas cupiditate dolore eos data placeat ratione, ipsam vel commodi sint? Quasi similaire explicabo atque quisquam remellendus odio!",
+  "companies_typically_follow_a_hierarchica": "Les entreprises suivent généralement une structure hiérarchique avec un conseil d'administration, des cadres supérieurs et des départements fonctionnels, bien que des variations existent comme des modèles fonctionnels, de division ou de matrice. Cette structure assure des rôles clairs, la responsabilité et l'efficacité dans la réalisation des objectifs opérationnels. Leadership supérieur Le conseil d'administration et les actionnaires assurent la surveillance et le financement, en établissant une orientation stratégique. Les PDG dirigent l'ensemble des opérations et du rendement, tandis que les OFC gèrent les finances et les risques, tous deux essentiels au succès à long terme et à la confiance des investisseurs. Les organisations de la société civile s'occupent de l'exécution quotidienne, assurant ainsi l'efficacité opérationnelle",
+  "company_logo": "Logo de l'entreprise",
+  "dashboard_overview": "Tableau de bord",
+  "welcome_back_user": "Bienvenue, utilisateur !"
+}

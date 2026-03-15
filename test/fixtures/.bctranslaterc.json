@@ -1,0 +1,8 @@
+{
+  "from": "en",
+  "to": [
+    "fr"
+  ],
+  "localesDir": "./locales",
+  "i18nFile": "./i18n.js"
+}

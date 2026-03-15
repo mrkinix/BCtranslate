@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import chalk from 'chalk';
 import { getLocaleDir } from './locales.js';
@@ -151,11 +151,18 @@ async function ensureVanillaI18n(cwd, from, to, localeDir) {
   }
 
   function t(key, params) {
-    const msg = (locales[currentLocale] && locales[currentLocale][key]) || key;
+    // Support both flat keys ("home.submit") and nested objects ({ home: { submit: ... } })
+    const dict = locales[currentLocale] || {};
+    const direct = Object.prototype.hasOwnProperty.call(dict, key) ? dict[key] : null;
+    const msg =
+      direct !== null && direct !== undefined
+        ? direct
+        : key.split('.').reduce((obj, i) => (obj ? obj[i] : null), dict) || key;
+
     if (!params) return msg;
-    return msg.replace(/\\{(\\w+)\\}/g, function (_, k) {
-      return params[k] !== undefined ? params[k] : '{' + k + '}';
-    });
+    return String(msg).replace(/\\{(\\w+)\\}/g, (match, k) =>
+      params[k] !== undefined ? params[k] : match
+    );
   }
 
   async function setLocale(lang) {
@@ -164,19 +171,30 @@ async function ensureVanillaI18n(cwd, from, to, localeDir) {
     // Re-translate all elements with data-i18n attribute
     document.querySelectorAll('[data-i18n]').forEach(function (el) {
       const key = el.getAttribute('data-i18n');
-      el.textContent = t(key);
+      const translated = t(key);
+      // Preserve markup translations (e.g. "Hello <strong>world</strong>")
+      if (el.children.length > 0 || /<[^>]+>/.test(String(translated))) {
+        el.innerHTML = translated;
+      } else {
+        el.textContent = translated;
+      }
     });
     document.querySelectorAll('[data-i18n-placeholder]').forEach(function (el) {
       el.placeholder = t(el.getAttribute('data-i18n-placeholder'));
     });
     document.querySelectorAll('[data-i18n-title]').forEach(function (el) {
-      el.title = t(el.getAttribute('data-i18n-title'));
+      const translated = t(el.getAttribute('data-i18n-title'));
+      if (el.tagName === 'TITLE') {
+        document.title = translated;
+      } else {
+        el.title = translated;
+      }
     });
   }
 
   // Auto-init
   loadLocale('${from}');
-  loadLocale('${to}');
+  setLocale('${to}');
 
   window.i18n = { t: t, setLocale: setLocale, loadLocale: loadLocale };
 })();
@@ -184,5 +202,50 @@ async function ensureVanillaI18n(cwd, from, to, localeDir) {
 
   writeFileSync(i18nFile, content, 'utf-8');
   console.log(chalk.green(`  ✓ Created ${i18nFile}`));
-  console.log(chalk.yellow(`  ⚠ Add <script src="i18n.js"></script> to your HTML`));
+
+  const injected = injectVanillaI18nEntrypoint(cwd);
+  if (!injected) {
+    console.log(chalk.yellow(`  ⚠ Add <script src="i18n.js"></script> to your HTML`));
+  }
+}
+
+function injectVanillaI18nEntrypoint(cwd) {
+  // Prefer HTML entrypoint if present
+  const htmlPath = join(cwd, 'index.html');
+  if (existsSync(htmlPath)) {
+    const html = readFileSync(htmlPath, 'utf-8');
+    if (!/\bi18n\.js\b/.test(html)) {
+      const scriptTag = `  <script src="./i18n.js"></script>\n`;
+      let updated = html;
+
+      const firstScript = updated.match(/<script\b/i);
+      if (firstScript) {
+        updated = updated.replace(firstScript[0], scriptTag + firstScript[0]);
+      } else if (updated.includes('</body>')) {
+        updated = updated.replace('</body>', scriptTag + '</body>');
+      } else if (updated.includes('</head>')) {
+        updated = updated.replace('</head>', scriptTag + '</head>');
+      } else {
+        updated += '\n' + scriptTag;
+      }
+
+      writeFileSync(htmlPath, updated, 'utf-8');
+      console.log(chalk.green(`  ✓ Updated ${htmlPath} (added i18n.js script)`));
+    }
+    return true;
+  }
+
+  // Fallback: ESM entrypoint
+  const jsPath = join(cwd, 'index.js');
+  if (existsSync(jsPath)) {
+    const js = readFileSync(jsPath, 'utf-8');
+    const alreadyImports = js.includes("./i18n.js") || js.includes("'./i18n.js'") || js.includes("\"./i18n.js\"");
+    if (!alreadyImports && /\b(import|export)\b/.test(js)) {
+      writeFileSync(jsPath, `import './i18n.js';\n` + js, 'utf-8');
+      console.log(chalk.green(`  ✓ Updated ${jsPath} (imported i18n.js)`));
+      return true;
+    }
+  }
+
+  return false;
 }
